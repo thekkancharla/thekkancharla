@@ -1,0 +1,236 @@
+---
+title: "STAT 240 Project"
+output: html_document
+---
+
+Group: 323C
+
+Names:Daniel Maloney, Kaushik Kancharla, Yang Qiu, Graham Raveret, Fan Zhang
+
+# Introduction
+Professional Football (Soccer) is the most popular sport in the world with an estimated 3.5 billion fans, according to TopEndSports. With all of these fans, there is a lot of money involved and team managers have to deal with handling wages for every player on their team. Optimally, each player's wage is consistent with their on-field performance because teams would not want to waste money on players with bad performances. According to Forbes, the highest-paid football player in the world in 2020 is Messi, although he is no longer at the peak of his performance. This is where the problem lies: there are inconsistencies between a player's wage and performance.
+
+Because this research problem has drastic effects on how teams use their budget on players to improve the overall quality of their team, data from Kaggle was collected to evaluate any potential key findings. As it turns out, the football video game "FIFA" has ratings for players through its yearly iterations and keeps track of each player's wage per game. Therefore, analysis was conducted to analyze this relationship between a player's wage and performance from the Wage per Game and OVR (Overall) Rating values respectively, which are integrated into every iteration of the games.
+
+The first question we will attempt to answer is: What age does a player have his highest overall rating? This question will help us evaluate the age that players typically are most skilled and peak in terms of their on-field performance. The next question will be: What age does a player get paid the most? By examining the resulting analysis, we can determine the age that players get the largest contracts of their career. Lastly, we will combine the analysis from the first two questions to discover whether professional soccer players tend to get paid the most money at the age when they are playing at their peak performance. The resulting statistical model describes the statistical significance between the age that we observe the highest wages and the best performance. Consequently, we can evaluate whether there are any young, up-and-coming players that deserve a higher pay or possibly older, washed-up players that are being overpaid.
+
+
+# Background
+
+The data used is comprised of individual data sets from the iterations FIFA 15 - FIFA 22 (current year). While there are previous FIFA games, the author of this Kaggle Dataset (Stefano Leone) only scraped for these specific years. He scraped this data using a web crawler in Python from sofifa.com (an online database that keeps track of all the data from previous FIFA interations). While sofifa.com obtained all their data directly from the FIFA games themselves, they have not stated if they manually enter this data or if they scrape data from the games' code. 
+
+To use this initial data, the first step is to delete the players who don't have data for all eight years. The next step is to select the columns of value (which are listed below). To answer the questions at hand, the only quantitative data that is needed includes a player's overall rating (overall), wage (WageinEuroperGame), and age. The rest of the variables include categorical variables that help distinguish specific players and various groupings to better understand the data as a whole. It is worth noting that individual player statistics such as their OVR Rating were obtained from FIFA's use of 6000 Talent Scouts whom maintain and update player stats year round. More will be said later about this metric.
+
+| Key Variables      | Description |
+| ----------- | ----------- |
+| id      | unique player ID on sofifa     |
+| name      | short name     |
+| fullName   | long name        |
+| position   | player preferred positions        |
+| overall   | player current overall attribute        |
+| WageinEuroperGame   | player weekly wage (in EUR)        |
+| dob   | player date of birth        |
+| age   | player age        |
+| club   | club name where the player plays        |
+| league   | league name of the club        |
+| nationality   | player nationality name        |
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+library(tidyverse)
+library(ggplot2)
+library(scales)
+source("../scripts/viridis.R")
+source("../scripts/ggprob.R")
+# Read in Data
+players_15 = read_csv("players_15.csv")
+players_16 = read_csv("players_16.csv")
+players_17 = read_csv("players_17.csv")
+players_18 = read_csv("players_18.csv")
+players_19 = read_csv("players_19.csv")
+players_20 = read_csv("players_20.csv")
+players_21 = read_csv("players_21.csv")
+players_22 = read_csv("players_22.csv")
+
+# Combine Data
+all_player = players_15 %>%
+  full_join(players_16) %>%
+  full_join(players_17) %>%
+  full_join(players_18)%>% 
+  full_join(players_19)%>%
+  full_join(players_20)%>%
+  full_join(players_21)%>%
+  full_join(players_22)
+rm(players_15,players_16,players_17,players_18,players_19,players_20,players_21,players_22)
+
+# Keep only Players in all Game Iterations
+player_8years = all_player%>%
+  arrange(sofifa_id)%>%
+  group_by(sofifa_id)%>%
+  summarise(n = n())%>%
+  filter(n==8)%>%
+  select(sofifa_id)
+official_data = all_player%>%
+  right_join(player_8years)%>%
+  arrange(sofifa_id)%>%
+  select(id = sofifa_id, 
+         name = short_name,
+         fullName = long_name,
+         position = player_positions,
+         overall,
+         WageinEuroperGame = wage_eur,
+         age,
+         dob,
+         club = club_name,
+         league = league_name,
+         nationality = nationality_name)
+```
+
+## Analysis
+Here is a simple scatter plot to see the relationship between OVR and Wage per Game. 
+```{r echo=FALSE}
+official_data %>% 
+  filter(league %in% c("English Premier League", "Italian Serie A", "USA Major League Soccer", "German 1. Bundesliga", "Spain Primera Division")) %>% 
+  ggplot(aes(x = overall,y = WageinEuroperGame, color = league)) + 
+  scale_y_continuous(labels = comma)+
+  geom_point(position = "jitter") +
+  xlab("OVR Rating") +
+  ylab("Wage Per Game (Euros)") +
+  ggtitle("Relationship between OVR and Wage per Game",
+          subtitle = "Major Leagues, 2015 - 2022") 
+```
+
+From the above dot plot, it is visible that OVR and Wage per Game seem to be proportional exponentially with each other. Only data from the 5 major leagues were included to highlight the significant differences in each league's max salary cap (the max amount they can pay a player). Thus, players that change leagues have an effect on the data analysis and this will be talked about later in the report. 
+
+(1) What age does a player have his highest overall rating and 
+(2) What age does a player get paid the most?
+
+```{r echo=FALSE}
+# Max Overall Data Set
+max_overall = official_data%>%
+  group_by(id)%>%
+  filter(overall == max(overall)) %>% 
+  group_by(id) %>% 
+  summarise(age = round(mean(age)))
+# Max Wage Data Set
+max_wage = official_data %>%
+  group_by(id) %>%
+  drop_na(WageinEuroperGame) %>%
+  filter(WageinEuroperGame == max(WageinEuroperGame)) %>% 
+  group_by(id) %>% 
+  summarise(age = round(mean(age)))
+# Joined Max Data Sets
+ComparisonData = left_join(max_wage, max_overall, by = "id") %>% 
+  mutate(WageAge = age.x,
+         RatingAge = age.y) %>% 
+  select(id, WageAge, RatingAge)
+```
+
+```{r echo=FALSE}
+# Using PivotLonger function to include AgeType variable for graph
+Combined_ComparisonData = ComparisonData %>%
+  pivot_longer(cols = 2:3, names_to = "AgeType", values_to = "Age") 
+```
+
+```{r echo=FALSE}
+# Creating a side by side bar chart
+ggplot(Combined_ComparisonData, aes(x = Age)) +
+  geom_bar(aes(fill = AgeType))+
+  xlab("Ages")+
+  ylab("Number of Players")+
+  ggtitle("Age of Peak Rating and Wage for Professional Football Players")+
+  facet_wrap(~ AgeType)
+```
+
+
+```{r include=F}
+# Summary Statistics of Max Overalls
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+max_overall %>% 
+  summarise(Mean = mean(age), 
+            Median = median(age), 
+            Mode = Mode(age), 
+            Youngest_Player = min(age), 
+            Oldest_Player = max(age), 
+            Age_Range = Oldest_Player-Youngest_Player, 
+            "St. Dev." = sd(age)) %>% 
+  head(n=1)
+# Summary Statistics of Max Wages
+max_wage %>% 
+  summarise(Mean = mean(age), 
+            Median = median(age), 
+            Mode = Mode(age), 
+            Youngest_Player = min(age), 
+            Oldest_Player = max(age), 
+            Range = Oldest_Player-Youngest_Player, 
+            "St. Dev." = sd(age)) %>% 
+  head(n=1)
+```
+
+| | Mean | Median |	Mode | Minimum | Maximum | Range | St. Dev. |
+| ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |
+| Peak Rating Age |	27.0 | 27 | 26 | 19 |	39 | 20 |	3.07 |
+| Peak Wage Age |	25.9 |	26 |	26 |	16 |	38 |	22 |	3.01 |
+
+The graph and subsequent summary table show that players typically get paid the most in their careers when they are around 26 years old. On the other hand, players typically play at their peak performance at around the age of 27. 
+
+
+(3) Do professional soccer players tend to get paid the most money at the age when they are playing at their peak performance?
+
+```{r echo=FALSE}
+# Finding the Age of Peak Wage per Player
+max_wage = official_data %>%
+  group_by(id) %>%
+  drop_na(WageinEuroperGame) %>%
+  filter(WageinEuroperGame == max(WageinEuroperGame)) %>% 
+  group_by(id) %>% 
+  summarise(age = round(mean(age)))
+
+# Finding the Age of Peak Rating per Player
+max_overall = official_data%>%
+  group_by(id)%>%
+  filter(overall == max(overall)) %>% 
+  group_by(id) %>% 
+  summarise(age = round(mean(age)))
+
+# Graph Comparing Age of Peak Rating and Age of Peak Wage
+lm = lm(formula = ComparisonData$WageAge ~ ComparisonData$RatingAge + 0)
+ggplot(ComparisonData, aes(x = RatingAge, y = WageAge)) + 
+  geom_point(position = "jitter")+
+  xlab("Age of Peak Rating")+
+  ylab("Age of Peak Wage")+
+  ggtitle("Comparison of Ages of Peak Rating and Wage", subtitle = "FIFA 15 - FIFA 22")+ 
+  geom_abline(intercept=0, slope=lm$coefficients[1])
+```
+
+```{r include=F}
+summary(lm)
+```
+
+The above graph shows a comparison of the two ages in question (peak rating and wage) with the slope of the linear regression through the origin giving the average ratio of these two variables. Since the plot appeared to have a linear pattern, a linear regression was chosen to evaluate it. In this case, the y-intercept goes through the origin of the plot because what is measured is the direct ratio between the x and y variables (the two age values). While it is consistent that increased performance of a player is correlated with a higher wage, the slope from the linear regression gives us a value around 0.96 with an R^2 of 0.9943. This slope shows that the Age of Peak Wage is, on average, less than the Age of Peak Rating. However, since the linear regression slope is close to 1, more testing will have to be done to see if this difference in ages is significant and  if this slope is statistically significant different from 1.
+
+
+```{r include=FALSE}
+t.test(max_overall$age, max_wage$age, paired = TRUE)
+```
+While it was found that both the mean age of peak performance and mean age of peak wage are correlated with each other, the slope was not exactly 1. From the paired t-test that compares the two means, a very low p-value (< 0.001) was found which leads to the REJECTION of the null hypothesis that there is no difference between the two mean ages.
+
+With 95% confidence, it can be said that the true difference in the age when players reach their overall (OVR) peak and their wage peak is between 1.005 and 1.142 years. There is very strong evidence that we can reject the hypothesis that players get paid the most when they have their highest overall rating (t = 30.811, df = 3343, p-value < 0.001).
+
+# Discussion
+Using summary statistics and the graphs displayed, it was found that players are typically at their peak on-field performance (Overall) at age 27 (Mean = 27, Median = 27). Meanwhile, the age at which players tend to have the highest wage occurs around the age of 26 (Mean = 25.93, Median = 26). Additionally, from the results of the analysis, it was discovered that one can be very confident that there is a statistical significance in the difference between a players age when they are at peak performance and when they are getting paid the most. Consequently, there are plenty of professional football players' whose wages do not match their performance. 
+
+There were a few shortcomings to this report in terms of data manipulation as well as the data itself. There were a few instances in which players experienced multiple peaks of the same value in both OVR and wage. This caused the acceptance of rounded means of ages from tied peaks to get a singular age value per player. This shortcoming changes the data quite a bit and leads to the analysis not reflecting real-world situations as well as it could. Another shortcoming is that players could have peaked before 2015 or have yet to peak, causing  peak ages for wage and rating to be incorrect. Also, the FIFA Rating itself is a subjective metric of the game and may not be the best metric for player performance. Finally, different leagues have different salary caps and standard salaries. For example, the MLS has drastically lower wages than a European league. This primarily effects players who switched leagues that have different salary caps, as they might have peaked in performance in one but peaked in wage in the other. These differences in wage may not the direct result of a change in performance, which makes them a confounding factor. 
+
+Future directions for this data to go could include other sports such as the 2K (Basketball) or Madden (Football) franchises and see if results are consistent between their mean ages for peaks in performance and wage. Analyzing other sports to see if this pattern of mismatching ages for performance and wage exists will also help decrease the severity of some of the potential shortcomings such as FIFA's problem with league salary caps. The FIFA datasets could also answer other questions such as those related to players' positions, teams, nationalities etc. To help bolster any future analysis done with the FIFA datasets, the data could be scraped differently to incorporate the previous FIFA iterations (before FIFA 15) to get more data points and have a more complete picture of the questions at hand.  
+
+## References
+- kaggle website: https://www.kaggle.com/stefanoleone992/fifa-22-complete-player-dataset
+- Soccer Estimated Fans: https://www.topendsports.com/world/lists/popular-sport/fans.htm 
+- Forbes article: https://www.forbes.com/sites/christinasettimi/2020/09/14/the-worlds-highest-paid-soccer-players-2020-messi-wins-mbappe-rises/?sh=1905d53f1cff
+- OVR Rating Metric: https://www.goal.com/en/news/fifa-player-ratings-explained-how-are-the-card-number-stats/1hszd2fgr7wgf1n2b2yjdpgynu
+- Mode Function: https://stackoverflow.com/questions/2547402/how-to-find-the-statistical-mode
